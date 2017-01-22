@@ -27,30 +27,40 @@ Hash算法关键信息(md5Password)
 
 核心流程在HashedCredentialsMatcher::doCredentialsMatch
 
+```java
 	    public boolean doCredentialsMatch(AuthenticationToken token, AuthenticationInfo info) {
 		Object tokenHashedCredentials = hashProvidedCredentials(token, info);
 		Object accountCredentials = getCredentials(info);
 		return equals(tokenHashedCredentials, accountCredentials);
 	    }
+```	    
+
+
 	    
-- AuthenticationInfo来源于MyRealm::doGetAuthenticationInfo(token)方法，需要注意的时，在该函数中构造AuthenticationInfo时，其Salt的来源：
+- AuthenticationInfo来源于MyRealm::doGetAuthenticationInfo(token)方法，需要注意的时，在该函数中构造AuthenticationInfo时，其Salt的来源(是用户表中的salt字段，前面加上用户名称)：
  
-             authenticationInfo = new SimpleAuthenticationInfo(
+```java
+     protected AuthenticationInfo doGetAuthenticationInfo(AuthenticationToken token){
+     ....
+     authenticationInfo = new SimpleAuthenticationInfo(
             		userEntity, // 用户对象
             		userEntity.getPassword(), // 密码
-					ByteSource.Util.bytes(username + userEntity.getCredentialsSalt()),// salt=username+salt
-					getName() // realm name
+			ByteSource.Util.bytes(username + userEntity.getCredentialsSalt()),// salt=username+salt
+			getName() // realm name
 			);
-			
-是用户表中的salt字段，前面加上用户名称。
-
+   ....
+   }
+```   
+   
 - AuthenticationToken来源于登录信息，里面包含用户名及密码.
 
 #### 处理流程
+
 - hashProvidedCredentials(token,info)  该函数是根据Hash参数（hash算法，密码，salt,  迭代测试），构造SimpleHash对象。
 - getCredentials(info)  该函数根据AuthenticationInfo中Hash之后的byte[],  利用Base64.decode解码；再反构出SimpleHash对象。
 
-		   protected Object getCredentials(AuthenticationInfo info) {
+```java
+     protected Object getCredentials(AuthenticationInfo info) {
 			Object credentials = info.getCredentials();
 
 			byte[] storedBytes = toBytes(credentials);
@@ -68,7 +78,7 @@ Hash算法关键信息(md5Password)
 			hash.setBytes(storedBytes);
 			return hash;
 		    }
-
+```
 
 	    
 	    
