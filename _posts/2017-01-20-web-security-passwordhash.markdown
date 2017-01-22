@@ -7,9 +7,9 @@
 
 
 Hash算法关键信息(md5Password)
-- 明文的密码
-- 随机数作为Salt(注意，在Md5Hash算法中，在Salt上又加了一层Salt--UserName。)
-- Hash迭代次数
+1. 明文的密码
+1. 随机数作为Salt(注意，在Md5Hash算法中，在Salt上又加了一层Salt--UserName。)
+1. Hash迭代次数
 
 	Hash函数的返回值是byte[]，为了能够以字符串方式表达，使用Base64编码。
 	Base64 encodes the specified byte array and then encodes it as a String using Shiro's preferred character encoding (UTF-8).
