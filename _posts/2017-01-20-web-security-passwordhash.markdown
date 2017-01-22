@@ -7,6 +7,7 @@
 
 
 Hash算法关键信息(md5Password)
+
 1. 明文的密码
 1. 随机数作为Salt(注意，在Md5Hash算法中，在Salt上又加了一层Salt--UserName。)
 1. Hash迭代次数
