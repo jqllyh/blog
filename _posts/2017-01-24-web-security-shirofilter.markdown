@@ -119,7 +119,7 @@ OR
 
 Filters are used to intercept and process a response before they are sent back to client by a servlet.
 
-![filter-filterchain](./filter.png)
+![filter-filterchain](images/filter.png)
 
 Why they are used ?
 
