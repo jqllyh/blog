@@ -1,10 +1,8 @@
-# **shiro 密码保存以及比较流程**
+# shiro 密码保存以及比较流程
 
-在现实例子中，由于数据库密码泄漏而导致注册用户密码泄漏的事件经常发生。为了防止明文直接保存在数据表中，用户输入的密码，都需要Hash之后，保存在表中。同时，为了保护Hash之后的密码被暴力破解，同时还需要加点salt。
-下面会以webside中的处理流程为例子，简要说明明文的密码，如何变成保存在表中的Hash字段
+在现实例子中，由于数据库密码泄漏而导致注册用户密码泄漏的事件经常发生。为了防止明文直接保存在数据表中，用户输入的密码，都需要Hash之后，保存在表中。同时，为了保护Hash之后的密码被暴力破解，同时还需要加点salt。下面会以webside中的处理流程为例子，简要说明明文的密码，如何变成保存在表中的Hash字段
 
-### 1. 密码保存
-
+## 1. 密码保存
 
 Hash算法关键信息(md5Password)
 
@@ -12,7 +10,7 @@ Hash算法关键信息(md5Password)
 1. 随机数作为Salt(注意，在Md5Hash算法中，在Salt上又加了一层Salt--UserName。)
 1. Hash迭代次数
 
-	Hash函数的返回值是byte[]，为了能够以字符串方式表达，使用Base64编码。
+	>Hash函数的返回值是byte[]，为了能够以字符串方式表达，使用Base64编码。
 	Base64 encodes the specified byte array and then encodes it as a String using Shiro's preferred character encoding (UTF-8).
 	
 通过上面的描述，我们可以清楚，保存在数据库表中的密码经历了如下处理
@@ -21,7 +19,7 @@ Hash算法关键信息(md5Password)
 
 
 
-### 2. 密码比较
+## 2. 密码比较
 
 在用户需要登录时，需要将用户传递过来的plaintext按照上述的规则，转换为Base64的字符串。在当前代码中，由于套用了shiro的Authentication流程，看起来有些曲折。摘取流程如下。
 
