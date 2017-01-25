@@ -80,20 +80,241 @@ Configuration for shiro is relative complex. above lines just list the part rela
 
 ## 2 Start Point from SpringShiroFilter
 
-In spring-shiro.xml, shiroFilter is created by ShiroFilterFactoryBean. This is a special spring bean, **FactoryBean**, which implement `getObject` interface. whenever a shiroFilter is needed, the FactoryBean's getObject method will be called.
+In spring-shiro.xml, shiroFilter is created by ShiroFilterFactoryBean. This is a special spring bean, **FactoryBean**, which implement `getObject` interface. whenever a shiroFilter is needed, the FactoryBean's `getObject` method will be called, it will call `createInstance`.
 
+### 2.1 The born of ShiroFilter
 
-### 2.1 PathMatchingFilterChainResolver
+~~~java
 
-- FilterChainManager
-   Create Procedure
+    protected AbstractShiroFilter createInstance() throws Exception {
+
+       
+        SecurityManager securityManager = getSecurityManager();
+
+        FilterChainManager manager = createFilterChainManager();
+
+        //Expose the constructed FilterChainManager by first wrapping it in a
+        // FilterChainResolver implementation. The AbstractShiroFilter implementations
+        // do not know about FilterChainManagers - only resolvers:
+        PathMatchingFilterChainResolver chainResolver = new PathMatchingFilterChainResolver();
+        chainResolver.setFilterChainManager(manager);
+
+        //Now create a concrete ShiroFilter instance and apply the acquired SecurityManager and built
+        //FilterChainResolver.  It doesn't matter that the instance is an anonymous inner class
+        //here - we're just using it because it is a concrete AbstractShiroFilter instance that accepts
+        //injection of the SecurityManager and FilterChainResolver:
+        return new SpringShiroFilter((WebSecurityManager) securityManager, chainResolver);
+    }
+
+~~~
+
+From the `createInstance` function, we can see the Shiro function entrypoint *ShiroFilter* is an instance of SpringShiroFilter. As it's name suggested, it a web Filter, more exactly, it inherits from AbstractShiroFilter.
+Main parameters for constructor are SecurityManager and PathMatchingFilterChainResolver. SecurityManager is the core of shiro, we need discuss it in another chapter. Here we just focus on ChainResolver.
+
+### 2.2 PathMatchingFilterChainResolver
+
+ChainResolver in an important part in the filter skeleton, it use ChainManager to manager the filter and filterChain, and get the corresponding filterChain according to URL. so let's first look at FilterChainManager.
+
+#### 2.2.1 FilterChainManager
+   The name is very clear, it manager filterChain.
+~~~java
+       protected FilterChainManager createFilterChainManager() {
+
+        DefaultFilterChainManager manager = new DefaultFilterChainManager();
+        Map<String, Filter> defaultFilters = manager.getFilters();
+        //apply global settings if necessary:
+        for (Filter filter : defaultFilters.values()) {
+            applyGlobalPropertiesIfNecessary(filter);
+        }
+
+        //Apply the acquired and/or configured filters:
+        Map<String, Filter> filters = getFilters();
+        if (!CollectionUtils.isEmpty(filters)) {
+            for (Map.Entry<String, Filter> entry : filters.entrySet()) {
+                String name = entry.getKey();
+                Filter filter = entry.getValue();
+                applyGlobalPropertiesIfNecessary(filter);
+                if (filter instanceof Nameable) {
+                    ((Nameable) filter).setName(name);
+                }
+                //'init' argument is false, since Spring-configured filters should be initialized
+                //in Spring (i.e. 'init-method=blah') or implement InitializingBean:
+                manager.addFilter(name, filter, false);
+            }
+        }
+
+        //build up the chains:
+        Map<String, String> chains = getFilterChainDefinitionMap();
+        if (!CollectionUtils.isEmpty(chains)) {
+            for (Map.Entry<String, String> entry : chains.entrySet()) {
+                String url = entry.getKey();
+                String chainDefinition = entry.getValue();
+                manager.createChain(url, chainDefinition);
+            }
+        }
+
+        return manager;
+    }
+~~~
+The main parts in the create procedure include following:
+
+1. defaultFilters is the default Filter that came with shiro, that is *DefaultFilter*. current has 11 default filters, such as *anon, authc, authcBasic, etc*.
+
+2. filters is the filters configured to shiroFilter Bean, the tag name is *<property name="filters">*.
+
+3. chains is the filterChain configured to shiroFilterBean, the tag name is  *<property name="filterChainDefinitions">*.
+
+    The chains  is instance of SimpleNamedFilterList, which implement NamedFilterList. the chain has backingList, which is an instance of List<Filter>. The really interesting of the List is the method *proxy*
+~~~java
+    
+    public FilterChain proxy(FilterChain orig) {
+        return new ProxiedFilterChain(orig, this);
+    }
+    
+    public class ProxiedFilterChain implements FilterChain {
+
+    private static final Logger log = LoggerFactory.getLogger(ProxiedFilterChain.class);
+
+    private FilterChain orig;
+    private List<Filter> filters;
+    private int index = 0;
+
+    public ProxiedFilterChain(FilterChain orig, List<Filter> filters) {
+        if (orig == null) {
+            throw new NullPointerException("original FilterChain cannot be null.");
+        }
+        this.orig = orig;
+        this.filters = filters;
+        this.index = 0;
+    }
+
+    public void doFilter(ServletRequest request, ServletResponse response) throws IOException, ServletException {
+        if (this.filters == null || this.filters.size() == this.index) {
+            //we've reached the end of the wrapped chain, so invoke the original one:
+            if (log.isTraceEnabled()) {
+                log.trace("Invoking original filter chain.");
+            }
+            this.orig.doFilter(request, response);
+        } else {
+            if (log.isTraceEnabled()) {
+                log.trace("Invoking wrapped filter at index [" + this.index + "]");
+            }
+            this.filters.get(this.index++).doFilter(request, response, this);
+        }
+    }
+}
+~~~
+
+From the code above, you can deduce that NamedFilterList::Proxy is translate filterList to **really** FilterChain.
+
+Finally, it comes the important part PatternMatcher.  
          
-- PatternMatcher
-   Create Procedure
-   
-### 2.2 FilterChain
+#### 2.2.2 PatternMatcher
 
-### 2.3 Filter 
+From the PatternMatcher source code, we can easy deduce what this class do.
+
+~~~java
+    
+     public FilterChain getChain(ServletRequest request, ServletResponse response, FilterChain originalChain) {
+        FilterChainManager filterChainManager = getFilterChainManager();
+        if (!filterChainManager.hasChains()) {
+            return null;
+        }
+
+        String requestURI = getPathWithinApplication(request);
+
+        //the 'chain names' in this implementation are actually path patterns defined by the user.  We just use them
+        //as the chain name for the FilterChainManager's requirements
+        for (String pathPattern : filterChainManager.getChainNames()) {
+
+            // If the path does match, then pass on to the subclass implementation for specific checks:
+            if (pathMatches(pathPattern, requestURI)) {
+                if (log.isTraceEnabled()) {
+                    log.trace("Matched path pattern [" + pathPattern + "] for requestURI [" + requestURI + "].  " +
+                            "Utilizing corresponding filter chain...");
+                }
+                return filterChainManager.proxy(originalChain, pathPattern);
+            }
+        }
+
+        return null;
+    }
+
+    protected boolean pathMatches(String pattern, String path) {
+        PatternMatcher pathMatcher = getPathMatcher();
+        return pathMatcher.matches(pattern, path);
+    }
+~~~
+
+PathMatchingFilterChainResolver implement FilterChainResolver, the only one interface needed is getChain.
+
+
+### 2.3 What's the ShiroFilter really do
+ShiroFilter is a subclass of AbstractShiroFilter. and it get SecurityManager and FilterChainResolver from bean configuration. so, let as see the internal of AbstractShiroFilter.
+
+ ~~~java
+     protected void doFilterInternal(ServletRequest servletRequest, ServletResponse servletResponse, final FilterChain chain)
+            throws ServletException, IOException {
+
+        Throwable t = null;
+
+        try {
+            final ServletRequest request = prepareServletRequest(servletRequest, servletResponse, chain);
+            final ServletResponse response = prepareServletResponse(request, servletResponse, chain);
+
+            final Subject subject = createSubject(request, response);
+
+            //noinspection unchecked
+            subject.execute(new Callable() {
+                public Object call() throws Exception {
+                    updateSessionLastAccessTime(request, response);
+                    executeChain(request, response, chain);
+                    return null;
+                }
+            });
+        } catch (ExecutionException ex) {
+            t = ex.getCause();
+        } catch (Throwable throwable) {
+            t = throwable;
+        }
+        .......
+    }
+
+   
+    protected FilterChain getExecutionChain(ServletRequest request, ServletResponse response, FilterChain origChain) {
+        FilterChain chain = origChain;
+
+        FilterChainResolver resolver = getFilterChainResolver();
+        if (resolver == null) {
+            log.debug("No FilterChainResolver configured.  Returning original FilterChain.");
+            return origChain;
+        }
+
+        FilterChain resolved = resolver.getChain(request, response, origChain);
+        if (resolved != null) {
+            log.trace("Resolved a configured FilterChain for the current request.");
+            chain = resolved;
+        } else {
+            log.trace("No FilterChain configured for the current request.  Using the default.");
+        }
+
+        return chain;
+    }
+
+    protected void executeChain(ServletRequest request, ServletResponse response, FilterChain origChain)
+            throws IOException, ServletException {
+        FilterChain chain = getExecutionChain(request, response, origChain);
+        chain.doFilter(request, response);
+    }
+ ~~~
+ 
+ 1. when the ShiroFilter be invoked, its doFilterInternal will be called(see *OncePerRequestFilter*).
+ 2. Prepare httprequest and httpresponse, and create subject from the current session.
+ 2. Using resolver, get execute chain for the current request, attation please, the resolved FilterChain include origChain from Servlet Container-provided chain.
+ 3. call chain.doFilter to execute all the filter in the chain. the chain is an instance of ProxiedFilterChain.
+ 
+
+### 2.3 Filter & FilterChain
 
 The point is that each filter stays "in front" and "behind" each servlet it is mapped to. So if you have a filter around a servlet, you'll have:
 
@@ -123,22 +344,20 @@ Filters are used to intercept and process a response before they are sent back t
 
 Why they are used ?
 
--Filters can perform security checks.
+- Filters can perform security checks.
 
--Compress the response stream.
+- Compress the response stream.
 
--Create a different response.
+- Create a different response.
 
 What does doFilter() do ?
 
 The doFilter() is called every time the container determines that the filter should be applied to a page.
 It takes three arguments
-
-->ServletRequest
-
-->ServlerResponse
-
-->FilterChain
+ 
+ServletRequest
+ServlerResponse
+FilterChain
 
 All the functionality that your filter supposed to do is implemented inside doFilter() method.
 
@@ -151,23 +370,25 @@ Your filters do not know anything about the other filters and servlet. FilterCha
 
 ## 3 Out of Box Shiro Filter   
 
+## UML sequence
+
+```flow
+st=>start: 开始
+e=>end: 结束
+op=>operation: 我的操作
+cond=>condition: 确认？
+
+st->op->cond
+cond(yes)->e
+cond(no)->op
+```
+
+```sequence
+张三->李四: 嘿，小四儿, 写博客了没?
+Note right of 李四: 李四愣了一下，说：
+李四-->张三: 忙得吐血，哪有时间写。
+```
+
+
     
   
-
-
-
-##Web.xml中的配置
-```java
-
-
-	
-```
-
-```java
-	<!-- 配置shiro的过滤器工厂类，这里bean的id shiroFilter要和我们在web.xml中配置的shior过滤器名称一致<filter-name>shiroFilter</filter-name> -->
-	<!-- Shiro主过滤器本身功能十分强大,其强大之处就在于它支持任何基于URL路径表达式的、自定义的过滤器的执行 -->
-	<!-- Web应用中,Shiro可控制的Web请求必须经过Shiro主过滤器的拦截,Shiro对基于Spring的Web应用提供了完美的支持 -->
-	<bean id="shiroFilter" class="org.apache.shiro.spring.web.ShiroFilterFactoryBean">
-		<!-- shiro的核心安全接口 -->
-		<property name="securityManager" ref="securityManager" />
-```
