@@ -117,6 +117,7 @@ ChainResolver in an important part in the filter skeleton, it use ChainManager t
 
 #### 2.2.1 FilterChainManager
    The name is very clear, it manager filterChain.
+   
 ~~~java
        protected FilterChainManager createFilterChainManager() {
 
@@ -160,11 +161,12 @@ The main parts in the create procedure include following:
 
 1. defaultFilters is the default Filter that came with shiro, that is *DefaultFilter*. current has 11 default filters, such as *anon, authc, authcBasic, etc*.
 
-2. filters is the filters configured to shiroFilter Bean, the tag name is *<property name="filters">*.
+2. filters is the filters configured to shiroFilter Bean, the tag name is **property name="filters"**.
 
-3. chains is the filterChain configured to shiroFilterBean, the tag name is  *<property name="filterChainDefinitions">*.
+3. chains is the filterChain configured to shiroFilterBean, the tag name is  **property name="filterChainDefinitions"**.
 
     The chains  is instance of SimpleNamedFilterList, which implement NamedFilterList. the chain has backingList, which is an instance of List<Filter>. The really interesting of the List is the method *proxy*
+
 ~~~java
     
     public FilterChain proxy(FilterChain orig) {
@@ -205,7 +207,9 @@ The main parts in the create procedure include following:
 }
 ~~~
 
-From the code above, you can deduce that NamedFilterList::Proxy is translate filterList to **really** FilterChain.
+From the code above, you can deduce that NamedFilterList::Proxy is translate filterList to **really** FilterChain. another interesting thing is *FilterChain orig*, it indicated Filters coming from web.xml. 
+
+*doFilter* is another important function, from the implement, it calls the next filter in the filter chain. if at the end of filter chain, calls orig filter chain.
 
 Finally, it comes the important part PatternMatcher.  
          
@@ -213,7 +217,7 @@ Finally, it comes the important part PatternMatcher.
 
 From the PatternMatcher source code, we can easy deduce what this class do.
 
-~~~java
+```java
     
      public FilterChain getChain(ServletRequest request, ServletResponse response, FilterChain originalChain) {
         FilterChainManager filterChainManager = getFilterChainManager();
@@ -244,15 +248,16 @@ From the PatternMatcher source code, we can easy deduce what this class do.
         PatternMatcher pathMatcher = getPathMatcher();
         return pathMatcher.matches(pattern, path);
     }
-~~~
+```
 
-PathMatchingFilterChainResolver implement FilterChainResolver, the only one interface needed is getChain.
+PathMatchingFilterChainResolver implement FilterChainResolver, the only one interface needed is getChain. if an web request URI comes, the shiro skeleton use this function to get the filterChain for this URI. and execute the filterChain for this URI, that is the real story start!
 
 
 ### 2.3 What's the ShiroFilter really do
+
 ShiroFilter is a subclass of AbstractShiroFilter. and it get SecurityManager and FilterChainResolver from bean configuration. so, let as see the internal of AbstractShiroFilter.
 
- ~~~java
+~~~java
      protected void doFilterInternal(ServletRequest servletRequest, ServletResponse servletResponse, final FilterChain chain)
             throws ServletException, IOException {
 
@@ -356,14 +361,14 @@ The doFilter() is called every time the container determines that the filter sho
 It takes three arguments
  
 ServletRequest
-ServlerResponse
+ServletResponse
 FilterChain
 
 All the functionality that your filter supposed to do is implemented inside doFilter() method.
 
 #### What is FilterChain ?
 
-Your filters do not know anything about the other filters and servlet. FilterChain knows the order of the invocation of filters and driven by the filter elements you defined in the DD.
+Your filters do not know anything about the other filters and servlet. FilterChain knows the order of the invocation of filters and driven by the filter elements you defined. and FilterChain::doFilter takes two arguments: ServlteRequest, ServletResponse.
 
 
 
